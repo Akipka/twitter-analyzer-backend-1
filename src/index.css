@@ -54,20 +54,27 @@ body {
 }
 
 .paper-card {
-  background-color: #faf6ee;
+  background-color: #fcfaf3;
   background-image:
     repeating-linear-gradient(
       to bottom,
       transparent 0,
       transparent 31px,
-      rgba(126, 105, 93, 0.10) 31px,
-      rgba(126, 105, 93, 0.10) 32px
+      rgba(126, 105, 93, 0.14) 31px,
+      rgba(126, 105, 93, 0.14) 32px
     );
-  border: 1px solid var(--rule);
+  border: 2px solid var(--ink);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.8) inset,
-    0 12px 40px -16px rgba(31, 29, 26, 0.18),
-    0 2px 8px -2px rgba(31, 29, 26, 0.08);
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 22px 50px -18px rgba(31, 29, 26, 0.32),
+    0 6px 14px -4px rgba(31, 29, 26, 0.18),
+    0 0 0 1px rgba(31, 29, 26, 0.06);
+}
+
+/* Subject row divider — dashed, in our crimson, generous spacing.
+   Used inside the report card list to separate subjects clearly. */
+.subject-row-top {
+  border-top: 2px dashed rgba(156, 67, 62, 0.55);
 }
 
 .left-margin {
