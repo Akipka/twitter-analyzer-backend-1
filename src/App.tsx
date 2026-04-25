@@ -303,6 +303,12 @@ function ResultScreen({
     <div className="mx-auto w-full max-w-3xl px-3 py-8 sm:px-6 sm:py-12">
       <Header subdued />
 
+      {data.demo && (
+        <div className="mt-4 border-2 border-dashed border-[color:var(--accent)] bg-[color:var(--paper)] px-4 py-3 text-center font-mono text-[11px] uppercase tracking-[0.28em] text-[color:var(--accent)] sm:text-xs">
+          Demo mode · synthetic data · top up the API to see real numbers
+        </div>
+      )}
+
       <div ref={cardRef} className="paper-card mt-6 p-4 sm:mt-8 sm:p-8 md:p-10">
         <ProfileHeader profile={data.profile} stats={data.stats} />
 

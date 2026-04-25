@@ -45,10 +45,22 @@ export interface AnalyzeResponse {
   profile: Profile;
   stats: Stats;
   elapsed: number;
+  // True when the backend served deterministic synthetic data (e.g. when
+  // upstream credits are exhausted but DEMO_FALLBACK is on).
+  demo?: boolean;
 }
 
 export interface AnalyzeError {
-  error: "not_found" | "invalid_username" | "missing_key" | "unavailable" | "network";
+  error:
+    | "not_found"
+    | "invalid_username"
+    | "missing_key"
+    | "unavailable"
+    | "network"
+    | "out_of_credits"
+    | "upstream_auth"
+    | "upstream_error"
+    | "rate_limited";
   message: string;
   profile?: Profile;
 }
