@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import html2canvas from "html2canvas";
+import { toBlob } from "html-to-image";
 import { analyze, avatarProxyUrl, type AnalyzeResponse, type Profile, type Stats } from "./api";
 import { buildReportCard, type ReportCard, type SubjectGrade } from "./grading";
 import { avatarPng } from "./avatar";
@@ -292,7 +292,7 @@ function ResultScreen({
 
 // ── Share modal ────────────────────────────────────────────────────────────
 
-type ShareStatus = "idle" | "working" | "copied" | "tweet_opened" | "saved" | "error";
+type ShareStatus = "idle" | "working" | "copied" | "saved" | "error";
 
 function ShareModal({
   cardRef,
@@ -309,25 +309,21 @@ function ShareModal({
   const [status, setStatus] = useState<ShareStatus>("idle");
   const blobRef = useRef<Blob | null>(null);
 
-  // Render the report card to a PNG once when the modal opens.
+  // Render the report card to a PNG via html-to-image. It uses SVG
+  // foreignObject under the hood, which captures the live page far more
+  // faithfully than html2canvas (transforms, line-height, pseudo-elements,
+  // emoji, custom fonts all survive intact).
   useEffect(() => {
     let cancelled = false;
     let url: string | null = null;
     const node = cardRef.current;
     if (!node) return;
     setStatus("working");
-    html2canvas(node, {
+    toBlob(node, {
       backgroundColor: "#fcfaf3",
-      scale: 2,
-      useCORS: true,
-      logging: false,
+      pixelRatio: 2,
+      cacheBust: true,
     })
-      .then(
-        (canvas) =>
-          new Promise<Blob | null>((resolve) =>
-            canvas.toBlob((b) => resolve(b), "image/png", 1),
-          ),
-      )
       .then((blob) => {
         if (cancelled || !blob) return;
         blobRef.current = blob;
@@ -359,107 +355,35 @@ function ShareModal({
     tweetText,
   )}&url=${encodeURIComponent(window.location.origin || "")}`;
 
-  const copyImage = useCallback(async (): Promise<boolean> => {
+  const onCopy = useCallback(async () => {
     const blob = blobRef.current;
-    if (!blob) return false;
+    if (!blob) return;
+    setStatus("working");
     try {
       const item = new ClipboardItem({ "image/png": blob });
       await navigator.clipboard.write([item]);
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  const downloadImage = useCallback(() => {
-    const blob = blobRef.current;
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `report-card-${username}.png`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }, [username]);
-
-  const onCopy = useCallback(async () => {
-    setStatus("working");
-    const ok = await copyImage();
-    if (ok) {
       setStatus("copied");
       setTimeout(() => setStatus("idle"), 2400);
-    } else {
-      // Clipboard API unavailable (Safari without HTTPS, Firefox older, etc.)
-      // Fall back to download so the user still gets the file.
-      downloadImage();
+    } catch {
+      // Clipboard API unavailable (Safari without HTTPS, etc.) — fall back
+      // to a download so the user still gets the file.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `report-card-${username}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
       setStatus("saved");
       setTimeout(() => setStatus("idle"), 2400);
     }
-  }, [copyImage, downloadImage]);
-
-  // Native Web Share API support detection. When available with file
-  // sharing (mobile + recent desktop Chrome/Edge), we can hand X the actual
-  // PNG instead of just text — which the X intent URL doesn't accept.
-  const [canNativeShare, setCanNativeShare] = useState(false);
-  useEffect(() => {
-    const blob = blobRef.current;
-    if (!blob || typeof navigator === "undefined" || !navigator.canShare) {
-      setCanNativeShare(false);
-      return;
-    }
-    try {
-      const file = new File([blob], `report-card-${username}.png`, {
-        type: "image/png",
-      });
-      setCanNativeShare(navigator.canShare({ files: [file] }));
-    } catch {
-      setCanNativeShare(false);
-    }
-  }, [previewUrl, username]);
-
-  // Native share — opens the OS share sheet with the image attached. Picking
-  // the X app from the sheet creates a new tweet with the image already
-  // staged. Only works on mobile + some recent desktop browsers.
-  const onNativeShare = useCallback(async () => {
-    const blob = blobRef.current;
-    if (!blob) return;
-    const file = new File([blob], `report-card-${username}.png`, {
-      type: "image/png",
-    });
-    setStatus("working");
-    try {
-      await navigator.share({
-        files: [file],
-        title: "Twitter School",
-        text: tweetText,
-      });
-      setStatus("copied");
-      setTimeout(() => setStatus("idle"), 2400);
-    } catch {
-      // User cancelled the sheet or share failed — silently reset.
-      setStatus("idle");
-    }
-  }, [tweetText, username]);
-
-  // Desktop fallback: open x.com/intent/post in a new tab AND copy the
-  // image to the clipboard so the user can paste (Ctrl+V) into the
-  // composer. We render this as an actual <a target="_blank"> so it
-  // bypasses popup blockers.
-  const onTweetClick = useCallback(() => {
-    setStatus("working");
-    void copyImage()
-      .then(() => setStatus("tweet_opened"))
-      .catch(() => setStatus("tweet_opened"))
-      .finally(() => setTimeout(() => setStatus("idle"), 3500));
-  }, [copyImage]);
+  }, [username]);
 
   const statusLine: Record<ShareStatus, string> = {
     idle: "",
     working: "Preparing image…",
     copied: "Image copied to clipboard ✓",
-    tweet_opened: "X opened · image copied to clipboard, paste with Ctrl+V",
     saved: "Image saved to your device ✓",
     error: "Couldn't render the image — try again",
   };
@@ -520,45 +444,22 @@ function ShareModal({
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {canNativeShare ? (
-            <button
-              onClick={onNativeShare}
-              disabled={!previewUrl}
-              className="flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] hover:bg-[color:var(--accent-deep)] disabled:opacity-50 sm:text-xs sm:tracking-[0.26em]"
+          <a
+            href={tweetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] no-underline hover:bg-[color:var(--accent-deep)] sm:text-xs sm:tracking-[0.26em]"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="currentColor"
+              aria-hidden="true"
             >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-4 w-4"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
-              </svg>
-              Share to X (with image)
-            </button>
-          ) : (
-            <a
-              href={previewUrl ? tweetUrl : undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={previewUrl ? onTweetClick : (e) => e.preventDefault()}
-              aria-disabled={!previewUrl}
-              className={
-                "flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] no-underline hover:bg-[color:var(--accent-deep)] sm:text-xs sm:tracking-[0.26em]" +
-                (!previewUrl ? " pointer-events-none opacity-50" : "")
-              }
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-4 w-4"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
-              </svg>
-              Share to X
-            </a>
-          )}
+              <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
+            </svg>
+            Share to X
+          </a>
           <button
             onClick={onCopy}
             disabled={!previewUrl}
