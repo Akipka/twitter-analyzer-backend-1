@@ -630,10 +630,10 @@ function Avatar({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <div className="truncate text-[9px] uppercase tracking-widest text-[color:var(--muted)] sm:text-[10px]">
+      <div className="text-[9px] uppercase tracking-widest leading-normal text-[color:var(--muted)] sm:text-[10px]">
         {label}
       </div>
-      <div className="font-mono text-sm font-bold text-[color:var(--ink)] sm:text-base">
+      <div className="font-mono text-sm font-bold leading-normal text-[color:var(--ink)] sm:text-base">
         {value}
       </div>
     </div>
@@ -651,27 +651,26 @@ function SubjectRow({
   return (
     <li
       className={
-        "flex items-start gap-3 py-3 sm:gap-5 sm:py-4" +
+        "flex items-stretch gap-3 py-4 sm:gap-5 sm:py-5" +
         (showTopDivider ? " subject-row-top" : "")
       }
     >
-      <div className="hidden w-8 shrink-0 pt-[0.2em] text-center font-mono text-base text-[color:var(--muted)] sm:block">
+      <div className="hidden w-8 shrink-0 self-center text-center font-mono text-base text-[color:var(--muted)] sm:block">
         {subject.emoji}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 self-center">
         <div className="flex items-baseline gap-2">
           <span className="text-base sm:hidden">{subject.emoji}</span>
           <h4
             className={
-              "font-serif text-base font-bold leading-snug text-[color:var(--ink)] sm:text-lg md:text-xl" +
+              "font-serif text-base font-bold leading-normal text-[color:var(--ink)] sm:text-lg md:text-xl" +
               (isFail ? " crossed" : "")
             }
-            style={{ paddingTop: "0.15em", paddingBottom: "0.05em" }}
           >
             {subject.name}
           </h4>
         </div>
-        <p className="mt-0.5 text-[12px] italic leading-snug text-[color:var(--ink-soft)] sm:text-xs sm:leading-normal">
+        <p className="mt-0.5 text-[12px] italic leading-normal text-[color:var(--ink-soft)] sm:text-xs">
           “{subject.comment}”
         </p>
         <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-[color:var(--muted)] sm:text-[11px]">
@@ -679,17 +678,18 @@ function SubjectRow({
           <span className="text-[color:var(--ink)]">{subject.metric.value}</span>
         </div>
       </div>
-      <div
-        className="grade-letter shrink-0 select-none text-right"
-        style={{
-          fontSize: "clamp(2.75rem, 9vw, 4.5rem)",
-          minWidth: "2.6ch",
-          // Visual nudge: the hand-written font has a tall ascender, so we
-          // pull it up so the cap-line lands roughly on the subject title.
-          marginTop: "-0.18em",
-        }}
-      >
-        {subject.grade}
+      <div className="flex shrink-0 items-center justify-end">
+        <span
+          className="grade-letter select-none"
+          style={{
+            fontSize: "clamp(2.75rem, 9vw, 4.5rem)",
+            minWidth: "2.6ch",
+            display: "inline-block",
+            textAlign: "right",
+          }}
+        >
+          {subject.grade}
+        </span>
       </div>
     </li>
   );
@@ -722,7 +722,7 @@ function Verdict({ card }: { card: ReportCard }) {
             className="stamp"
             style={{ fontSize: "clamp(1.25rem, 4.5vw, 1.875rem)" }}
           >
-            {card.verdict.title}
+            <span className="stamp__inner">{card.verdict.title}</span>
           </div>
         </div>
       </div>
