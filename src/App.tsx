@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import { analyze, type AnalyzeResponse, type Profile, type Stats } from "./api";
 import { buildReportCard, type ReportCard, type SubjectGrade } from "./grading";
+import { svgAvatar } from "./avatar";
 
 type Screen =
   | { kind: "input" }
@@ -214,8 +215,6 @@ function ErrorScreen({ message, onBack }: { message: string; onBack: () => void 
 
 // ── Result ─────────────────────────────────────────────────────────────────
 
-type ShareState = "idle" | "copying" | "copied" | "saved" | "error";
-
 function ResultScreen({
   data,
   card,
@@ -226,78 +225,7 @@ function ResultScreen({
   onBack: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const [shareState, setShareState] = useState<ShareState>("idle");
-
-  const onShare = useCallback(async () => {
-    if (!cardRef.current) return;
-    setShareState("copying");
-    try {
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: "#f3efe8",
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-      const blob: Blob | null = await new Promise((resolve) =>
-        canvas.toBlob((b) => resolve(b), "image/png", 1),
-      );
-      if (!blob) throw new Error("toBlob failed");
-
-      const file = new File([blob], "twitter-report-card.png", { type: "image/png" });
-
-      // 1) Try native share with image (most useful on mobile).
-      const nav = navigator as Navigator & {
-        canShare?: (data: { files: File[] }) => boolean;
-        share?: (data: { files?: File[]; title?: string; text?: string }) => Promise<void>;
-      };
-      if (typeof nav !== "undefined" && nav.canShare?.({ files: [file] }) && nav.share) {
-        try {
-          await nav.share({
-            files: [file],
-            title: "My Twitter Report Card",
-            text: `My result at Twitter School: ${card.verdict.title}`,
-          });
-          setShareState("idle");
-          return;
-        } catch {
-          // user cancelled or share unsupported — fall through to clipboard
-        }
-      }
-
-      // 2) Try clipboard image (desktop Chromium / Safari).
-      try {
-        const item = new ClipboardItem({ "image/png": blob });
-        await navigator.clipboard.write([item]);
-        setShareState("copied");
-        setTimeout(() => setShareState("idle"), 2400);
-        return;
-      } catch {
-        // 3) Final fallback: download.
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `report-card-${data.profile.userName}.png`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        setShareState("saved");
-        setTimeout(() => setShareState("idle"), 2400);
-      }
-    } catch (err) {
-      console.error(err);
-      setShareState("error");
-      setTimeout(() => setShareState("idle"), 2400);
-    }
-  }, [card.verdict.title, data.profile.userName]);
-
-  const shareLabel: Record<ShareState, string> = {
-    idle: "Share · screenshot",
-    copying: "Preparing image…",
-    copied: "Copied to clipboard ✓",
-    saved: "Saved to device ✓",
-    error: "Error — try again",
-  };
+  const [shareOpen, setShareOpen] = useState(false);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-3 py-8 sm:px-6 sm:py-12">
@@ -321,12 +249,13 @@ function ResultScreen({
               30 days · {data.stats.tweets_analyzed} tweets
             </div>
           </div>
-          <div className="mt-2 h-px bg-[color:var(--rule)]" />
-          <ul className="mt-1 divide-y divide-[color:var(--rule-soft)]">
-            {card.subjects.map((s) => (
-              <SubjectRow key={s.id} subject={s} />
+          <div className="mt-2 h-[3px] bg-[color:var(--ink)]" />
+          <ul>
+            {card.subjects.map((s, i) => (
+              <SubjectRow key={s.id} subject={s} showTopDivider={i > 0} />
             ))}
           </ul>
+          <div className="h-[3px] bg-[color:var(--ink)]" />
         </div>
 
         <Verdict card={card} />
@@ -340,15 +269,258 @@ function ResultScreen({
           ← Another student
         </button>
         <button
-          onClick={onShare}
-          disabled={shareState === "copying"}
-          className="border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-5 py-3 font-mono text-[11px] uppercase tracking-[0.26em] text-[#faf6ee] hover:bg-[color:var(--accent-deep)] disabled:opacity-60 sm:px-6 sm:text-xs sm:tracking-[0.3em]"
+          onClick={() => setShareOpen(true)}
+          className="border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-5 py-3 font-mono text-[11px] uppercase tracking-[0.26em] text-[#faf6ee] hover:bg-[color:var(--accent-deep)] sm:px-6 sm:text-xs sm:tracking-[0.3em]"
         >
-          {shareLabel[shareState]}
+          Share results
         </button>
       </div>
 
       <Footer />
+
+      {shareOpen && (
+        <ShareModal
+          cardRef={cardRef}
+          card={card}
+          username={data.profile.userName}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Share modal ────────────────────────────────────────────────────────────
+
+type ShareStatus = "idle" | "working" | "copied" | "tweet_opened" | "saved" | "error";
+
+function ShareModal({
+  cardRef,
+  card,
+  username,
+  onClose,
+}: {
+  cardRef: React.RefObject<HTMLDivElement | null>;
+  card: ReportCard;
+  username: string;
+  onClose: () => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState<ShareStatus>("idle");
+  const blobRef = useRef<Blob | null>(null);
+
+  // Render the report card to a PNG once when the modal opens.
+  useEffect(() => {
+    let cancelled = false;
+    let url: string | null = null;
+    const node = cardRef.current;
+    if (!node) return;
+    setStatus("working");
+    html2canvas(node, {
+      backgroundColor: "#fcfaf3",
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    })
+      .then(
+        (canvas) =>
+          new Promise<Blob | null>((resolve) =>
+            canvas.toBlob((b) => resolve(b), "image/png", 1),
+          ),
+      )
+      .then((blob) => {
+        if (cancelled || !blob) return;
+        blobRef.current = blob;
+        url = URL.createObjectURL(blob);
+        setPreviewUrl(url);
+        setStatus("idle");
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("error");
+      });
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [cardRef]);
+
+  // Close on Esc.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const gpa10 = (card.gpa * 2).toFixed(1);
+  const tweetText = `My Twitter School report card: GPA ${gpa10}/10 — ${card.verdict.title}.`;
+  const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+    tweetText,
+  )}&url=${encodeURIComponent(window.location.origin || "")}`;
+
+  const copyImage = useCallback(async (): Promise<boolean> => {
+    const blob = blobRef.current;
+    if (!blob) return false;
+    try {
+      const item = new ClipboardItem({ "image/png": blob });
+      await navigator.clipboard.write([item]);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const downloadImage = useCallback(() => {
+    const blob = blobRef.current;
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `report-card-${username}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [username]);
+
+  const onCopy = useCallback(async () => {
+    setStatus("working");
+    const ok = await copyImage();
+    if (ok) {
+      setStatus("copied");
+      setTimeout(() => setStatus("idle"), 2400);
+    } else {
+      // Clipboard API unavailable (Safari without HTTPS, Firefox older, etc.)
+      // Fall back to download so the user still gets the file.
+      downloadImage();
+      setStatus("saved");
+      setTimeout(() => setStatus("idle"), 2400);
+    }
+  }, [copyImage, downloadImage]);
+
+  const onTweet = useCallback(async () => {
+    setStatus("working");
+    // Best-effort: copy the image so the user can paste it into the composer.
+    await copyImage();
+    setStatus("tweet_opened");
+    window.open(tweetUrl, "_blank", "noopener,noreferrer");
+    setTimeout(() => setStatus("idle"), 2800);
+  }, [copyImage, tweetUrl]);
+
+  const statusLine: Record<ShareStatus, string> = {
+    idle: "",
+    working: "Preparing image…",
+    copied: "Image copied to clipboard ✓",
+    tweet_opened: "Image copied · paste it into your tweet",
+    saved: "Image saved to your device ✓",
+    error: "Couldn't render the image — try again",
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Share results"
+      className="fixed inset-0 z-50 flex items-center justify-center px-3 py-4 sm:px-6"
+      style={{
+        background: "rgba(31, 29, 26, 0.55)",
+        backdropFilter: "blur(2px)",
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="paper-card relative flex w-full max-w-md flex-col gap-5 p-5 sm:p-7"
+      >
+        <button
+          aria-label="Close"
+          onClick={onClose}
+          className="absolute right-3 top-3 grid h-8 w-8 place-items-center font-mono text-[11px] uppercase tracking-widest text-[color:var(--ink-soft)] hover:text-[color:var(--accent)]"
+        >
+          ✕
+        </button>
+
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-[color:var(--muted)] sm:text-[11px]">
+            Share results
+          </div>
+          <h3 className="mt-1 font-serif text-2xl font-bold text-[color:var(--ink)] sm:text-3xl">
+            Send it to the world
+          </h3>
+          <p className="mt-2 font-serif text-sm italic text-[color:var(--ink-soft)]">
+            Post it on X, or copy the image and paste it anywhere.
+          </p>
+        </div>
+
+        <div
+          className="aspect-[5/4] w-full overflow-hidden rounded-sm border-2 border-[color:var(--ink)] bg-[color:var(--paper-deep)]"
+          style={{
+            boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.6)",
+          }}
+        >
+          {previewUrl ? (
+            <img
+              src={previewUrl}
+              alt="Report card preview"
+              className="h-full w-full object-cover object-top"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center font-mono text-[11px] uppercase tracking-[0.3em] text-[color:var(--muted)] shimmer">
+              Drawing your report…
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            onClick={onTweet}
+            disabled={!previewUrl}
+            className="flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] hover:bg-[color:var(--accent-deep)] disabled:opacity-50 sm:text-xs sm:tracking-[0.26em]"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
+            </svg>
+            Share to X
+          </button>
+          <button
+            onClick={onCopy}
+            disabled={!previewUrl}
+            className="flex items-center justify-center gap-2 border-2 border-[color:var(--ink)] bg-transparent px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--ink)] hover:bg-[color:var(--ink)] hover:text-[color:var(--paper)] disabled:opacity-50 sm:text-xs sm:tracking-[0.26em]"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+            Copy image
+          </button>
+        </div>
+
+        <p
+          className={
+            "min-h-[1.25em] text-center font-mono text-[10px] uppercase tracking-[0.28em] sm:text-[11px] " +
+            (status === "error"
+              ? "text-[color:var(--accent)]"
+              : "text-[color:var(--muted)]")
+          }
+        >
+          {statusLine[status]}
+        </p>
+      </div>
     </div>
   );
 }
@@ -356,7 +528,11 @@ function ResultScreen({
 function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
   return (
     <div className="flex flex-col items-start gap-4 sm:flex-row sm:gap-5">
-      <Avatar src={profile.avatarUrl} alt={profile.displayName} />
+      <Avatar
+        src={profile.avatarUrl}
+        alt={profile.displayName}
+        username={profile.userName}
+      />
       <div className="min-w-0 flex-1">
         <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[color:var(--muted)] sm:tracking-[0.32em]">
           Student file
@@ -393,28 +569,35 @@ function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
   );
 }
 
-function Avatar({ src, alt }: { src: string; alt: string }) {
+function Avatar({
+  src,
+  alt,
+  username,
+}: {
+  src: string;
+  alt: string;
+  username: string;
+}) {
+  const fallback = useMemo(() => svgAvatar(alt, username), [alt, username]);
+  const [failed, setFailed] = useState(false);
+  const showSrc = src && !failed ? src : fallback;
   return (
     <div className="relative shrink-0">
       <div
         className="h-20 w-20 overflow-hidden rounded-full border-4 border-[color:var(--accent)] bg-[color:var(--paper-deep)] sm:h-24 sm:w-24"
         style={{
-          boxShadow: "0 4px 14px -6px rgba(0,0,0,0.25), inset 0 0 0 2px #faf6ee",
+          boxShadow:
+            "0 4px 14px -6px rgba(0,0,0,0.25), inset 0 0 0 2px #faf6ee",
         }}
       >
-        {src ? (
-          <img
-            src={src}
-            alt={alt}
-            crossOrigin="anonymous"
-            className="h-full w-full object-cover"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center font-serif text-3xl text-[color:var(--muted)]">
-            ?
-          </div>
-        )}
+        <img
+          src={showSrc}
+          alt={alt}
+          crossOrigin="anonymous"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
       </div>
       <div className="absolute -right-2 -bottom-2 rounded-full border-2 border-[color:var(--paper)] bg-[color:var(--accent)] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-[#faf6ee]">
         Stud.
@@ -436,10 +619,21 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SubjectRow({ subject }: { subject: SubjectGrade }) {
+function SubjectRow({
+  subject,
+  showTopDivider,
+}: {
+  subject: SubjectGrade;
+  showTopDivider: boolean;
+}) {
   const isFail = subject.grade === "F";
   return (
-    <li className="flex items-center gap-3 py-3 sm:gap-5 sm:py-4">
+    <li
+      className={
+        "flex items-center gap-3 py-3 sm:gap-5 sm:py-4" +
+        (showTopDivider ? " subject-row-top" : "")
+      }
+    >
       <div className="hidden w-8 shrink-0 text-center font-mono text-base text-[color:var(--muted)] sm:block">
         {subject.emoji}
       </div>
