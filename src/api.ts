@@ -1,114 +1,87 @@
-// ============================================================
-// DIGITAL GRADEBOOK — API Layer
+// Backend client for the Twitter Report Card API.
 //
-// Backend always returns valid JSON:
-//   { posts, replies, total, warning? }
-//
-// Frontend never gets null from fetchAnalytics.
-// Errors are surfaced via the `warning` field.
-// ============================================================
+// Backend lives in the `twitter-analyzer-backend` repo and exposes:
+//   GET /api/analyze/:username → { profile, stats, elapsed }
 
-export interface AnalyticsData {
+export interface Profile {
+  id: string;
+  userName: string;
+  displayName: string;
+  avatarUrl: string;
+  coverUrl: string;
+  description: string;
+  location: string;
+  followers: number;
+  following: number;
+  statusesCount: number;
+  isBlueVerified: boolean;
+  createdAt: string | null;
+  url: string;
+}
+
+export interface Stats {
+  window_days: number;
+  in_window: boolean;
+  tweets_analyzed: number;
   posts: number;
   replies: number;
   total: number;
-  warning?: string;
+  avg_likes: number;
+  avg_retweets: number;
+  avg_views: number;
+  avg_quotes: number;
+  avg_replies_received: number;
+  engagement_score: number;
+  avg_chars: number;
+  avg_words: number;
+  unique_word_ratio: number;
+  activity_per_day: number;
+  days_span: number;
+  earliest: string | null;
+  latest: string | null;
 }
 
-export interface ProfileData {
-  displayName: string;
-  avatarUrl: string;
-  followers: number;
+export interface AnalyzeResponse {
+  profile: Profile;
+  stats: Stats;
+  elapsed: number;
+  // True when the backend served deterministic synthetic data (e.g. when
+  // upstream credits are exhausted but DEMO_FALLBACK is on).
+  demo?: boolean;
 }
 
-// Resolve backend URL: env var > localhost fallback
+export interface AnalyzeError {
+  error:
+    | "not_found"
+    | "invalid_username"
+    | "missing_key"
+    | "unavailable"
+    | "network"
+    | "out_of_credits"
+    | "upstream_auth"
+    | "upstream_error"
+    | "rate_limited";
+  message: string;
+  profile?: Profile;
+}
+
 const API_BASE: string =
-  (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ||
+  "http://localhost:5000";
 
-console.log('[API] Backend URL:', API_BASE);
-
-// ============================================================
-// GET /api/analyze/:username → AnalyticsData (never null)
-// ============================================================
-
-const EMPTY: AnalyticsData = { posts: 0, replies: 0, total: 0 };
-
-export async function fetchAnalytics(username: string): Promise<AnalyticsData> {
-  const url = `${API_BASE}/api/analyze/${encodeURIComponent(username)}`;
-  console.log('[API] GET', url);
-
+export async function analyze(
+  username: string,
+): Promise<AnalyzeResponse | AnalyzeError> {
+  const clean = username.trim().replace(/^@/, "");
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000); // 15s client timeout
-
-    const r = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    const data = await r.json();
-
-    if (
-      typeof data.posts === 'number' &&
-      typeof data.replies === 'number' &&
-      typeof data.total === 'number'
-    ) {
-      console.log('[API] Response:', data);
-      return data as AnalyticsData;
-    }
-
-    // Malformed response
+    const res = await fetch(`${API_BASE}/api/analyze/${encodeURIComponent(clean)}`);
+    const data = (await res.json()) as AnalyzeResponse | AnalyzeError;
+    if (!res.ok && "error" in data) return data;
+    return data;
+  } catch (err) {
     return {
-      ...EMPTY,
-      warning: 'Invalid response from server.',
+      error: "network",
+      message: err instanceof Error ? err.message : "Network error",
     };
-  } catch (e: any) {
-    const msg = e?.message || String(e);
-    console.error('[API] fetchAnalytics failed:', msg);
-
-    if (e?.name === 'AbortError') {
-      return {
-        ...EMPTY,
-        warning: 'Request timed out (15s). The server may be waking up — try again in 30 seconds.',
-      };
-    }
-
-    if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('net::ERR')) {
-      return {
-        ...EMPTY,
-        warning: 'Backend is not reachable. Make sure the server is running.',
-      };
-    }
-
-    return {
-      ...EMPTY,
-      warning: `Request failed: ${msg}`,
-    };
-  }
-}
-
-// ============================================================
-// FXTwitter: profile + avatar (CORS-friendly, no backend)
-// ============================================================
-
-export async function fetchProfile(username: string): Promise<ProfileData | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8_000);
-
-    const r = await fetch(
-      `https://api.fxtwitter.com/${encodeURIComponent(username)}`,
-      { signal: controller.signal }
-    );
-    clearTimeout(timeout);
-
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (!d?.user) return null;
-    return {
-      displayName: d.user.name || username,
-      avatarUrl: d.user.avatar_url || '',
-      followers: d.user.followers ?? 0,
-    };
-  } catch {
-    return null;
   }
 }

@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.env.local
+# .env.production is tracked — it pins the deployed backend URL.
+.DS_Store
+*.log
+.vite
