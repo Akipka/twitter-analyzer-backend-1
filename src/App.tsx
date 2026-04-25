@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import { analyze, type AnalyzeResponse, type Profile, type Stats } from "./api";
 import { buildReportCard, type ReportCard, type SubjectGrade } from "./grading";
-import { svgAvatar } from "./avatar";
+import { avatarPng } from "./avatar";
 
 type Screen =
   | { kind: "input" }
@@ -399,13 +399,16 @@ function ShareModal({
     }
   }, [copyImage, downloadImage]);
 
-  const onTweet = useCallback(async () => {
+  const onTweet = useCallback(() => {
+    // Open the popup synchronously inside the click gesture, otherwise
+    // browsers (Chrome/Firefox/Safari) block window.open after an `await`.
+    const popup = window.open(tweetUrl, "_blank", "noopener,noreferrer");
     setStatus("working");
-    // Best-effort: copy the image so the user can paste it into the composer.
-    await copyImage();
-    setStatus("tweet_opened");
-    window.open(tweetUrl, "_blank", "noopener,noreferrer");
-    setTimeout(() => setStatus("idle"), 2800);
+    // Best-effort: also copy the image so the user can paste into the composer.
+    void copyImage().then(() => {
+      setStatus(popup ? "tweet_opened" : "error");
+      setTimeout(() => setStatus("idle"), 2800);
+    });
   }, [copyImage, tweetUrl]);
 
   const statusLine: Record<ShareStatus, string> = {
@@ -529,7 +532,7 @@ function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
   return (
     <div className="flex flex-col items-start gap-4 sm:flex-row sm:gap-5">
       <Avatar
-        src={profile.avatarUrl}
+        src={sanitizeAvatarUrl(profile.avatarUrl)}
         alt={profile.displayName}
         username={profile.userName}
       />
@@ -569,6 +572,21 @@ function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
   );
 }
 
+// unavatar.io serves avatars without CORS headers, so even when the image
+// loads in the browser the resulting canvas is tainted and html2canvas
+// renders an empty rectangle. Treat such URLs as "no image available" so we
+// fall back to the inline initials avatar (which renders fine everywhere).
+function sanitizeAvatarUrl(url: string): string {
+  if (!url) return "";
+  try {
+    const host = new URL(url).hostname;
+    if (host.endsWith("unavatar.io")) return "";
+  } catch {
+    // not a valid URL — let the Avatar component handle it
+  }
+  return url;
+}
+
 function Avatar({
   src,
   alt,
@@ -578,26 +596,43 @@ function Avatar({
   alt: string;
   username: string;
 }) {
-  const fallback = useMemo(() => svgAvatar(alt, username), [alt, username]);
-  const [failed, setFailed] = useState(false);
-  const showSrc = src && !failed ? src : fallback;
+  // Pre-render the initials avatar into a PNG once. Using a real <img> with
+  // a PNG data URL guarantees html2canvas captures it (inline SVG <text>
+  // and HTML <span> sometimes don't survive html2canvas's foreignObject
+  // path, leaving the avatar empty in the share image).
+  const fallbackPng = useMemo(() => avatarPng(alt, username), [alt, username]);
+  const [imgState, setImgState] = useState<"loading" | "loaded" | "failed">(
+    src ? "loading" : "failed",
+  );
+  const showNetworkImage = !!src && imgState === "loaded";
   return (
     <div className="relative shrink-0">
       <div
-        className="h-20 w-20 overflow-hidden rounded-full border-4 border-[color:var(--accent)] bg-[color:var(--paper-deep)] sm:h-24 sm:w-24"
+        className="relative h-20 w-20 overflow-hidden rounded-full border-4 border-[color:var(--accent)] sm:h-24 sm:w-24"
         style={{
           boxShadow:
             "0 4px 14px -6px rgba(0,0,0,0.25), inset 0 0 0 2px #faf6ee",
         }}
       >
         <img
-          src={showSrc}
+          src={showNetworkImage ? src : fallbackPng}
           alt={alt}
           crossOrigin="anonymous"
           referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
           className="h-full w-full object-cover"
         />
+        {/* Hidden probe: only flips to network image after it actually loads. */}
+        {!!src && imgState === "loading" && (
+          <img
+            src={src}
+            alt=""
+            crossOrigin="anonymous"
+            referrerPolicy="no-referrer"
+            onLoad={() => setImgState("loaded")}
+            onError={() => setImgState("failed")}
+            className="hidden"
+          />
+        )}
       </div>
       <div className="absolute -right-2 -bottom-2 rounded-full border-2 border-[color:var(--paper)] bg-[color:var(--accent)] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-[#faf6ee]">
         Stud.
@@ -642,17 +677,18 @@ function SubjectRow({
           <span className="text-base sm:hidden">{subject.emoji}</span>
           <h4
             className={
-              "truncate font-serif text-base font-bold text-[color:var(--ink)] sm:text-lg md:text-xl" +
+              "font-serif text-base font-bold leading-snug text-[color:var(--ink)] sm:text-lg md:text-xl" +
               (isFail ? " crossed" : "")
             }
+            style={{ paddingTop: "0.15em", paddingBottom: "0.05em" }}
           >
             {subject.name}
           </h4>
         </div>
-        <p className="mt-0.5 line-clamp-2 text-[12px] italic leading-snug text-[color:var(--ink-soft)] sm:text-xs sm:leading-normal">
+        <p className="mt-0.5 text-[12px] italic leading-snug text-[color:var(--ink-soft)] sm:text-xs sm:leading-normal">
           “{subject.comment}”
         </p>
-        <div className="mt-1 truncate font-mono text-[10px] uppercase tracking-widest text-[color:var(--muted)] sm:text-[11px]">
+        <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-[color:var(--muted)] sm:text-[11px]">
           {subject.metric.label}:{" "}
           <span className="text-[color:var(--ink)]">{subject.metric.value}</span>
         </div>
@@ -688,7 +724,7 @@ function Verdict({ card }: { card: ReportCard }) {
             </div>
             <div className="font-mono text-sm text-[color:var(--muted)]">/ 10</div>
           </div>
-          <p className="mt-2 max-w-xs font-serif text-sm italic text-[color:var(--ink-soft)]">
+          <p className="mt-2 max-w-xs font-serif text-[15px] font-medium leading-snug text-[color:var(--ink)] sm:text-base">
             {card.verdict.subtitle}
           </p>
         </div>
