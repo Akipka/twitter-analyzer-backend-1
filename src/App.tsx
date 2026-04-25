@@ -399,24 +399,67 @@ function ShareModal({
     }
   }, [copyImage, downloadImage]);
 
-  // Share-to-X: render as a real anchor (target="_blank") so the browser
-  // treats it as a direct user navigation. window.open() was getting blocked
-  // by some popup blockers and the browser's intent-protection heuristics
-  // even though it ran inside a click handler. Anchor clicks bypass that.
+  // Native Web Share API support detection. When available with file
+  // sharing (mobile + recent desktop Chrome/Edge), we can hand X the actual
+  // PNG instead of just text — which the X intent URL doesn't accept.
+  const [canNativeShare, setCanNativeShare] = useState(false);
+  useEffect(() => {
+    const blob = blobRef.current;
+    if (!blob || typeof navigator === "undefined" || !navigator.canShare) {
+      setCanNativeShare(false);
+      return;
+    }
+    try {
+      const file = new File([blob], `report-card-${username}.png`, {
+        type: "image/png",
+      });
+      setCanNativeShare(navigator.canShare({ files: [file] }));
+    } catch {
+      setCanNativeShare(false);
+    }
+  }, [previewUrl, username]);
+
+  // Native share — opens the OS share sheet with the image attached. Picking
+  // the X app from the sheet creates a new tweet with the image already
+  // staged. Only works on mobile + some recent desktop browsers.
+  const onNativeShare = useCallback(async () => {
+    const blob = blobRef.current;
+    if (!blob) return;
+    const file = new File([blob], `report-card-${username}.png`, {
+      type: "image/png",
+    });
+    setStatus("working");
+    try {
+      await navigator.share({
+        files: [file],
+        title: "Twitter School",
+        text: tweetText,
+      });
+      setStatus("copied");
+      setTimeout(() => setStatus("idle"), 2400);
+    } catch {
+      // User cancelled the sheet or share failed — silently reset.
+      setStatus("idle");
+    }
+  }, [tweetText, username]);
+
+  // Desktop fallback: open x.com/intent/post in a new tab AND copy the
+  // image to the clipboard so the user can paste (Ctrl+V) into the
+  // composer. We render this as an actual <a target="_blank"> so it
+  // bypasses popup blockers.
   const onTweetClick = useCallback(() => {
     setStatus("working");
-    // Best-effort: also copy the image so the user can paste into composer.
     void copyImage()
       .then(() => setStatus("tweet_opened"))
       .catch(() => setStatus("tweet_opened"))
-      .finally(() => setTimeout(() => setStatus("idle"), 2800));
+      .finally(() => setTimeout(() => setStatus("idle"), 3500));
   }, [copyImage]);
 
   const statusLine: Record<ShareStatus, string> = {
     idle: "",
     working: "Preparing image…",
     copied: "Image copied to clipboard ✓",
-    tweet_opened: "Image copied · paste it into your tweet",
+    tweet_opened: "X opened · image copied to clipboard, paste with Ctrl+V",
     saved: "Image saved to your device ✓",
     error: "Couldn't render the image — try again",
   };
@@ -477,27 +520,45 @@ function ShareModal({
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <a
-            href={previewUrl ? tweetUrl : undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={previewUrl ? onTweetClick : (e) => e.preventDefault()}
-            aria-disabled={!previewUrl}
-            className={
-              "flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] no-underline hover:bg-[color:var(--accent-deep)] sm:text-xs sm:tracking-[0.26em]" +
-              (!previewUrl ? " pointer-events-none opacity-50" : "")
-            }
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-4 w-4"
-              fill="currentColor"
-              aria-hidden="true"
+          {canNativeShare ? (
+            <button
+              onClick={onNativeShare}
+              disabled={!previewUrl}
+              className="flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] hover:bg-[color:var(--accent-deep)] disabled:opacity-50 sm:text-xs sm:tracking-[0.26em]"
             >
-              <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
-            </svg>
-            Share to X
-          </a>
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
+              </svg>
+              Share to X (with image)
+            </button>
+          ) : (
+            <a
+              href={previewUrl ? tweetUrl : undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={previewUrl ? onTweetClick : (e) => e.preventDefault()}
+              aria-disabled={!previewUrl}
+              className={
+                "flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] no-underline hover:bg-[color:var(--accent-deep)] sm:text-xs sm:tracking-[0.26em]" +
+                (!previewUrl ? " pointer-events-none opacity-50" : "")
+              }
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
+              </svg>
+              Share to X
+            </a>
+          )}
           <button
             onClick={onCopy}
             disabled={!previewUrl}

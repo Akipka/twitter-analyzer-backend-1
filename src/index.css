@@ -136,14 +136,16 @@ body {
    misrenders both: the inner border ends up off-centre and rotation leaves
    visible clipping seams on the captured PNG. */
 .stamp {
-  display: inline-block;
-  padding: 0.6em 1.2em 0.7em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.7em 1.25em 0.65em;
   border: 4px double var(--accent);
   color: var(--accent);
   font-family: var(--font-serif);
   font-weight: 900;
   letter-spacing: 0.08em;
-  line-height: 1.15;
+  line-height: 1;
   text-transform: uppercase;
   background: rgba(250, 246, 238, 0.8);
   box-shadow: inset 0 0 0 6px rgba(250, 246, 238, 0.8),
@@ -151,7 +153,10 @@ body {
 }
 .stamp__inner {
   display: inline-block;
-  line-height: 1.15;
+  line-height: 1;
+  /* Pull the cap-heavy serif glyph optically up so it sits dead-centre
+     between the two borders (cap-height < em-height for serif faces). */
+  transform: translateY(-0.04em);
 }
 
 /* ── Hand-written grade (huge red letter) ───────────────────── */
@@ -159,11 +164,12 @@ body {
   font-family: var(--font-hand);
   font-weight: 700;
   color: var(--accent);
-  /* The hand-written font has tall ascenders + descenders; line-height: 1
-     was clipping descenders so they bled into the next row's separator.
-     1.05 + a small negative bottom margin keeps the visual centre but
-     leaves enough room inside the line box for the glyph. */
-  line-height: 1.05;
+  line-height: 1;
+  /* Hand-written font sits visually low inside its em-box (the baseline
+     is biased downward and ascenders are tall). We lift it ~0.18em so the
+     optical centre of the letter matches the row's vertical centre on the
+     live page AND in the html2canvas-rendered PNG. */
+  transform: translateY(-0.18em);
 }
 
 /* ── Crossed cell (for F grades) ────────────────────────────── */
