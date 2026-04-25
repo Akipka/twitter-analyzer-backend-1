@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
-import { analyze, type AnalyzeResponse, type Profile, type Stats } from "./api";
+import { analyze, avatarProxyUrl, type AnalyzeResponse, type Profile, type Stats } from "./api";
 import { buildReportCard, type ReportCard, type SubjectGrade } from "./grading";
 import { avatarPng } from "./avatar";
 
@@ -232,8 +232,8 @@ function ResultScreen({
       <Header subdued />
 
       {data.demo && (
-        <div className="mt-4 border-2 border-dashed border-[color:var(--accent)] bg-[color:var(--paper)] px-4 py-3 text-center font-mono text-[11px] uppercase tracking-[0.28em] text-[color:var(--accent)] sm:text-xs">
-          Demo mode · synthetic data · top up the API to see real numbers
+        <div className="mt-4 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 text-center font-mono text-[12px] font-bold uppercase tracking-[0.18em] text-[#faf6ee] sm:text-[13px] sm:tracking-[0.22em]">
+          Demo mode — these numbers are <span className="underline">synthetic</span>, not real. Top up the API to see real data.
         </div>
       )}
 
@@ -400,15 +400,17 @@ function ShareModal({
   }, [copyImage, downloadImage]);
 
   const onTweet = useCallback(() => {
-    // Open the popup synchronously inside the click gesture, otherwise
-    // browsers (Chrome/Firefox/Safari) block window.open after an `await`.
-    const popup = window.open(tweetUrl, "_blank", "noopener,noreferrer");
+    // Open the popup synchronously inside the click gesture — browsers
+    // block window.open if it runs after an `await`. We DON'T inspect the
+    // return value: with `noopener` it's always null even on success, so
+    // checking it would cause false "failed" statuses.
+    window.open(tweetUrl, "_blank", "noopener,noreferrer");
     setStatus("working");
     // Best-effort: also copy the image so the user can paste into the composer.
-    void copyImage().then(() => {
-      setStatus(popup ? "tweet_opened" : "error");
-      setTimeout(() => setStatus("idle"), 2800);
-    });
+    void copyImage()
+      .then(() => setStatus("tweet_opened"))
+      .catch(() => setStatus("tweet_opened"))
+      .finally(() => setTimeout(() => setStatus("idle"), 2800));
   }, [copyImage, tweetUrl]);
 
   const statusLine: Record<ShareStatus, string> = {
@@ -529,10 +531,12 @@ function ShareModal({
 }
 
 function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
+  // Always pull the avatar through our backend proxy. The proxy serves the
+  // real X profile image with proper CORS so html2canvas can capture it.
   return (
     <div className="flex flex-col items-start gap-4 sm:flex-row sm:gap-5">
       <Avatar
-        src={sanitizeAvatarUrl(profile.avatarUrl)}
+        src={avatarProxyUrl(profile.userName)}
         alt={profile.displayName}
         username={profile.userName}
       />
@@ -570,21 +574,6 @@ function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
       </div>
     </div>
   );
-}
-
-// unavatar.io serves avatars without CORS headers, so even when the image
-// loads in the browser the resulting canvas is tainted and html2canvas
-// renders an empty rectangle. Treat such URLs as "no image available" so we
-// fall back to the inline initials avatar (which renders fine everywhere).
-function sanitizeAvatarUrl(url: string): string {
-  if (!url) return "";
-  try {
-    const host = new URL(url).hostname;
-    if (host.endsWith("unavatar.io")) return "";
-  } catch {
-    // not a valid URL — let the Avatar component handle it
-  }
-  return url;
 }
 
 function Avatar({
@@ -634,9 +623,6 @@ function Avatar({
           />
         )}
       </div>
-      <div className="absolute -right-2 -bottom-2 rounded-full border-2 border-[color:var(--paper)] bg-[color:var(--accent)] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-[#faf6ee]">
-        Stud.
-      </div>
     </div>
   );
 }
@@ -665,11 +651,11 @@ function SubjectRow({
   return (
     <li
       className={
-        "flex items-center gap-3 py-3 sm:gap-5 sm:py-4" +
+        "flex items-start gap-3 py-3 sm:gap-5 sm:py-4" +
         (showTopDivider ? " subject-row-top" : "")
       }
     >
-      <div className="hidden w-8 shrink-0 text-center font-mono text-base text-[color:var(--muted)] sm:block">
+      <div className="hidden w-8 shrink-0 pt-[0.2em] text-center font-mono text-base text-[color:var(--muted)] sm:block">
         {subject.emoji}
       </div>
       <div className="min-w-0 flex-1">
@@ -698,6 +684,9 @@ function SubjectRow({
         style={{
           fontSize: "clamp(2.75rem, 9vw, 4.5rem)",
           minWidth: "2.6ch",
+          // Visual nudge: the hand-written font has a tall ascender, so we
+          // pull it up so the cap-line lands roughly on the subject title.
+          marginTop: "-0.18em",
         }}
       >
         {subject.grade}

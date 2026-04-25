@@ -69,6 +69,15 @@ const API_BASE: string =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ||
   "http://localhost:5000";
 
+// Backend-proxied avatar URL. The proxy serves the real X profile image with
+// `Access-Control-Allow-Origin: *`, which is what html2canvas needs to render
+// it into the share-as-image canvas without tainting it.
+export function avatarProxyUrl(username: string): string {
+  const clean = username.trim().replace(/^@/, "");
+  if (!clean) return "";
+  return `${API_BASE}/api/avatar/${encodeURIComponent(clean)}`;
+}
+
 export async function analyze(
   username: string,
 ): Promise<AnalyzeResponse | AnalyzeError> {
