@@ -355,7 +355,7 @@ function ShareModal({
 
   const gpa10 = (card.gpa * 2).toFixed(1);
   const tweetText = `My Twitter School report card: GPA ${gpa10}/10 — ${card.verdict.title}.`;
-  const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+  const tweetUrl = `https://x.com/intent/post?text=${encodeURIComponent(
     tweetText,
   )}&url=${encodeURIComponent(window.location.origin || "")}`;
 
@@ -399,19 +399,18 @@ function ShareModal({
     }
   }, [copyImage, downloadImage]);
 
-  const onTweet = useCallback(() => {
-    // Open the popup synchronously inside the click gesture — browsers
-    // block window.open if it runs after an `await`. We DON'T inspect the
-    // return value: with `noopener` it's always null even on success, so
-    // checking it would cause false "failed" statuses.
-    window.open(tweetUrl, "_blank", "noopener,noreferrer");
+  // Share-to-X: render as a real anchor (target="_blank") so the browser
+  // treats it as a direct user navigation. window.open() was getting blocked
+  // by some popup blockers and the browser's intent-protection heuristics
+  // even though it ran inside a click handler. Anchor clicks bypass that.
+  const onTweetClick = useCallback(() => {
     setStatus("working");
-    // Best-effort: also copy the image so the user can paste into the composer.
+    // Best-effort: also copy the image so the user can paste into composer.
     void copyImage()
       .then(() => setStatus("tweet_opened"))
       .catch(() => setStatus("tweet_opened"))
       .finally(() => setTimeout(() => setStatus("idle"), 2800));
-  }, [copyImage, tweetUrl]);
+  }, [copyImage]);
 
   const statusLine: Record<ShareStatus, string> = {
     idle: "",
@@ -478,10 +477,16 @@ function ShareModal({
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <button
-            onClick={onTweet}
-            disabled={!previewUrl}
-            className="flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] hover:bg-[color:var(--accent-deep)] disabled:opacity-50 sm:text-xs sm:tracking-[0.26em]"
+          <a
+            href={previewUrl ? tweetUrl : undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={previewUrl ? onTweetClick : (e) => e.preventDefault()}
+            aria-disabled={!previewUrl}
+            className={
+              "flex items-center justify-center gap-2 border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-4 py-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#faf6ee] no-underline hover:bg-[color:var(--accent-deep)] sm:text-xs sm:tracking-[0.26em]" +
+              (!previewUrl ? " pointer-events-none opacity-50" : "")
+            }
           >
             <svg
               viewBox="0 0 24 24"
@@ -492,7 +497,7 @@ function ShareModal({
               <path d="M18.244 2H21l-6.52 7.45L22 22h-6.063l-4.745-6.21L5.5 22H2.747l6.99-7.99L2 2h6.21l4.276 5.65L18.244 2zm-1.06 18h1.682L7.92 4H6.155l11.029 16z" />
             </svg>
             Share to X
-          </button>
+          </a>
           <button
             onClick={onCopy}
             disabled={!previewUrl}
@@ -713,7 +718,7 @@ function Verdict({ card }: { card: ReportCard }) {
             </div>
             <div className="font-mono text-sm text-[color:var(--muted)]">/ 10</div>
           </div>
-          <p className="mt-2 max-w-xs font-serif text-[15px] font-medium leading-snug text-[color:var(--ink)] sm:text-base">
+          <p className="mt-2 max-w-xs font-serif text-[15px] font-medium leading-normal text-[color:var(--ink)] sm:text-base">
             {card.verdict.subtitle}
           </p>
         </div>
