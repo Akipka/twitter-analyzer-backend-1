@@ -221,11 +221,15 @@ const ACTIVITY_COMMENTS: Record<Grade, string[]> = {
 // ── Subject scorers ────────────────────────────────────────────────────────
 
 function gradeTweetology(stats: Stats): SubjectGrade {
-  // Original posts in the window (default 30 days).
-  // Active creator ≈ 5/day → 150 (A); daily presence ≈ 1/day → 30 (B).
+  // Original posts (non-replies) in the window (default 30 days).
+  // Calibrated against real X distributions: median active user posts ~5–20/30d,
+  // power users 80–300/30d, content factories 500+/30d. Thresholds scale
+  // proportionally if the window is shorter/longer than 30 days.
+  // F: <3/30d (lurker), D: <20 (rare), C: <60 (casual), B: <150 (regular),
+  // A: <350 (creator), A+: 350+ (machine).
   const w = Math.max(stats.window_days, 1) / 30;
   const v = stats.posts;
-  const grade = bucket(v, [1 * w, 10 * w, 30 * w, 80 * w, 200 * w]);
+  const grade = bucket(v, [3 * w, 20 * w, 60 * w, 150 * w, 350 * w]);
   return {
     id: "tweetology",
     name: "Tweetology",
@@ -239,9 +243,13 @@ function gradeTweetology(stats: Stats): SubjectGrade {
 }
 
 function gradeReplyology(stats: Stats): SubjectGrade {
+  // Replies in the window. Most users barely reply; conversationalists hit
+  // 30–150/30d; reply-guys clear 400+/30d.
+  // F: <2/30d (silent), D: <15 (rare), C: <50 (occasional), B: <150 (chatty),
+  // A: <400 (reply-guy), A+: 400+ (lives in replies).
   const w = Math.max(stats.window_days, 1) / 30;
   const v = stats.replies;
-  const grade = bucket(v, [1 * w, 10 * w, 40 * w, 150 * w, 500 * w]);
+  const grade = bucket(v, [2 * w, 15 * w, 50 * w, 150 * w, 400 * w]);
   return {
     id: "replyology",
     name: "Reply-ology",
@@ -255,19 +263,24 @@ function gradeReplyology(stats: Stats): SubjectGrade {
 }
 
 function gradeVirality(stats: Stats, profile: Profile): SubjectGrade {
-  // For non-trivial follower counts use engagement rate, otherwise raw avg likes.
+  // For accounts with a real audience use engagement rate (escapes follower-
+  // count bias). For tiny accounts use raw avg likes.
+  // Industry benchmarks: median X engagement rate is ~0.045%; 1–2% is good;
+  // 5%+ is genuine virality; 10%+ is rare.
+  // F: <0.1%, D: <0.5%, C: <1.5%, B: <4%, A: <10%, A+: 10%+.
   const followers = profile.followers;
   let grade: Grade;
   let metricValue: string;
   let metricLabel: string;
   if (followers >= 200) {
     const rate = stats.engagement_score / Math.max(followers, 1);
-    grade = bucket(rate, [0.001, 0.005, 0.02, 0.06, 0.20]);
+    grade = bucket(rate, [0.001, 0.005, 0.015, 0.04, 0.10]);
     metricValue = `${(rate * 100).toFixed(2)}%`;
     metricLabel = "engagement rate";
   } else {
+    // Tiny accounts: judge by raw likes. Most micro-accounts get <2 ❤/tweet.
     const v = stats.avg_likes;
-    grade = bucket(v, [0.5, 2, 5, 15, 50]);
+    grade = bucket(v, [0.3, 1.5, 5, 15, 40]);
     metricValue = `${stats.avg_likes.toFixed(1)} ❤`;
     metricLabel = "avg ❤ / tweet";
   }
@@ -284,12 +297,15 @@ function gradeVirality(stats: Stats, profile: Profile): SubjectGrade {
 }
 
 function gradeSmartology(stats: Stats): SubjectGrade {
-  // Composite: tweet length + lexical diversity. Longer + more varied = higher.
-  // avg_words ≈ 12 is normal; > 30 is essay-tier.
-  const lengthScore = Math.min(stats.avg_words / 35, 1);
+  // Composite of substance: avg words per tweet (depth of expression) plus
+  // lexical diversity (vocabulary breadth). 280-char limit caps tweets at
+  // ~50 words. Median X tweet ≈ 12–15 words; 30+ words is thoughtful;
+  // 40+ is essay-tier.
+  const lengthScore = Math.min(stats.avg_words / 40, 1);
   const diversity = stats.unique_word_ratio;
   const score = lengthScore * 0.55 + diversity * 0.45;
-  const grade = bucket(score, [0.20, 0.32, 0.45, 0.60, 0.78]);
+  // Tightened: median user (12 words, 0.55 div) scores ~0.41 → C.
+  const grade = bucket(score, [0.22, 0.36, 0.50, 0.64, 0.80]);
   return {
     id: "smartology",
     name: "Smart-ology",
@@ -306,9 +322,12 @@ function gradeSmartology(stats: Stats): SubjectGrade {
 }
 
 function gradeCreativity(stats: Stats): SubjectGrade {
-  // Lexical diversity is a clean proxy for "topic variety" without an LLM.
+  // Lexical diversity = unique non-trivial words / total. Clean LLM-free proxy
+  // for "how much new vocabulary the author actually uses".
+  // Real range: 0.35 (repetitive) – 0.85 (very varied). Spammers/bots cluster
+  // in 0.20–0.40. Median creator sits at ~0.55.
   const v = stats.unique_word_ratio;
-  const grade = bucket(v, [0.30, 0.40, 0.52, 0.66, 0.78]);
+  const grade = bucket(v, [0.32, 0.44, 0.55, 0.68, 0.80]);
   return {
     id: "creativity",
     name: "Creatology",
@@ -322,8 +341,11 @@ function gradeCreativity(stats: Stats): SubjectGrade {
 }
 
 function gradeActivity(stats: Stats): SubjectGrade {
+  // Tweets+replies per day across the observed range. Real distribution:
+  // most users <0.5/day; active 1–3/day; power users 5–10/day; bots/maniacs 20+.
+  // F: <0.15, D: <0.7, C: <2.5, B: <6, A: <15, A+: 15+.
   const v = stats.activity_per_day;
-  const grade = bucket(v, [0.1, 0.5, 2.0, 5.0, 15.0]);
+  const grade = bucket(v, [0.15, 0.7, 2.5, 6.0, 15.0]);
   return {
     id: "activity",
     name: "Activology",
