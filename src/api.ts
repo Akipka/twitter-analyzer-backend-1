@@ -48,6 +48,10 @@ export interface AnalyzeResponse {
   // True when the backend served deterministic synthetic data (e.g. when
   // upstream credits are exhausted but DEMO_FALLBACK is on).
   demo?: boolean;
+  // True when this response was served from the backend's 24h cache (saves
+  // twitterapi.io credits on popular profiles). Frontend treats it identically.
+  cached?: boolean;
+  cached_age_seconds?: number;
 }
 
 export interface AnalyzeError {
