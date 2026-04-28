@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toBlob } from "html-to-image";
-import { analyze, avatarProxyUrl, type AnalyzeResponse, type Profile, type Stats } from "./api";
+import {
+  analyze,
+  avatarProxyUrl,
+  fetchClassmates,
+  type AnalyzeResponse,
+  type Classification,
+  type ClassmateMember,
+  type Profile,
+  type Stats,
+} from "./api";
 import { buildReportCard, type ReportCard, type SubjectGrade } from "./grading";
+import { applyClassTheme, sectionLabel } from "./classThemes";
 import { avatarPng } from "./avatar";
 
 type Screen =
@@ -20,7 +30,14 @@ export default function App() {
       setScreen({ kind: "error", message: res.message });
       return;
     }
-    const card = buildReportCard(res.profile, res.stats);
+    // Build the report card, then re-skin every subject to match the class
+    // the user got assigned to (DeFi → "Yield Farming" instead of "Tweetology",
+    // etc). The grade itself is unchanged — just the cosmetics.
+    const baseCard = buildReportCard(res.profile, res.stats);
+    const card: ReportCard = {
+      ...baseCard,
+      subjects: applyClassTheme(baseCard.subjects, res.classification?.primary),
+    };
     setScreen({ kind: "result", data: res, card });
   }, []);
 
@@ -49,14 +66,14 @@ function Header({ subdued = false }: { subdued?: boolean }) {
         Ministry of Content · Journal N°{journal}
       </div>
       <h1
-        data-text="TWITTER SCHOOL"
+        data-text="CRYPTO SCHOOL"
         className="glitch mt-3 font-serif font-black tracking-tight text-[color:var(--ink)]"
         style={{ fontSize: "clamp(2rem, 7.5vw, 3.5rem)", lineHeight: 1.05 }}
       >
-        TWITTER SCHOOL
+        CRYPTO SCHOOL
       </h1>
       <p className="mx-auto mt-2 max-w-md px-2 font-serif text-xs italic text-[color:var(--ink-soft)] sm:text-sm">
-        Your Twitter report card. Enter a @username, get the verdict.
+        Your Crypto Twitter report card. Enter a @username, get sorted into your class.
       </p>
       <div className="rule-red mx-auto mt-5 w-32 sm:w-48" />
     </div>
@@ -254,6 +271,13 @@ function ResultScreen({
       <div ref={cardRef} className="paper-card anim-card mt-6 p-4 sm:mt-8 sm:p-8 md:p-10">
         <ProfileHeader profile={data.profile} stats={data.stats} />
 
+        {data.classification && (
+          <ClassAssignment
+            classification={data.classification}
+            username={data.profile.userName}
+          />
+        )}
+
         <div className="mt-6 sm:mt-8">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
             <h3 className="font-serif text-lg font-bold uppercase tracking-wider text-[color:var(--ink)] sm:text-xl">
@@ -274,6 +298,10 @@ function ResultScreen({
 
         <Verdict card={card} />
       </div>
+
+      {data.classification && (
+        <ClassmatesSection classification={data.classification} />
+      )}
 
       <div className="mt-6 flex flex-col items-stretch gap-3 sm:mt-8 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <button
@@ -297,6 +325,7 @@ function ResultScreen({
           cardRef={cardRef}
           card={card}
           username={data.profile.userName}
+          classification={data.classification}
           onClose={() => setShareOpen(false)}
         />
       )}
@@ -312,11 +341,13 @@ function ShareModal({
   cardRef,
   card,
   username,
+  classification,
   onClose,
 }: {
   cardRef: React.RefObject<HTMLDivElement | null>;
   card: ReportCard;
   username: string;
+  classification?: Classification;
   onClose: () => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -364,7 +395,10 @@ function ShareModal({
   }, [onClose]);
 
   const gpa10 = (card.gpa * 2).toFixed(1);
-  const tweetText = `My Twitter School report card: GPA ${gpa10}/10 — ${card.verdict.title}.`;
+  const classBit = classification && classification.primary !== "general"
+    ? ` · ${classification.label}`
+    : "";
+  const tweetText = `My Crypto School report card: GPA ${gpa10}/10 — ${card.verdict.title}${classBit}.`;
   const tweetUrl = `https://x.com/intent/post?text=${encodeURIComponent(
     tweetText,
   )}&url=${encodeURIComponent(window.location.origin || "")}`;
@@ -743,6 +777,238 @@ function useCountUp(target: number, durationMs = 1000): number {
     return () => cancelAnimationFrame(raf);
   }, [target, durationMs]);
   return v;
+}
+
+// ── Class assignment + classmates ──────────────────────────────────────────
+
+/**
+ * Renders inside the report card. Gives the user their crypto class +
+ * a horizontal breakdown bar of every category they touched. Captured
+ * inside the share PNG along with the rest of the report card.
+ */
+function ClassAssignment({
+  classification,
+  username,
+}: {
+  classification: Classification;
+  username: string;
+}) {
+  // Top categories to render in the bar — anything with a non-zero share.
+  // Sorted desc by backend already.
+  const segs = classification.breakdown.filter((b) => b.share > 0.005);
+  const section = sectionLabel(classification.primary, username || "anon");
+
+  return (
+    <div className="mt-6 border-y-2 border-double border-[color:var(--accent)] py-5 sm:mt-8 sm:py-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.32em] text-[color:var(--muted)] sm:tracking-[0.4em]">
+            Class assignment
+          </div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span
+              aria-hidden
+              style={{ fontSize: "clamp(1.5rem, 5vw, 2rem)" }}
+            >
+              {classification.emoji}
+            </span>
+            <h3
+              className="font-serif font-black leading-tight text-[color:var(--ink)]"
+              style={{ fontSize: "clamp(1.4rem, 5.5vw, 2.1rem)" }}
+            >
+              {classification.label}
+            </h3>
+          </div>
+          <p className="mt-1.5 max-w-md font-serif text-[14px] italic text-[color:var(--ink-soft)] sm:text-[15px]">
+            {classification.blurb}
+          </p>
+        </div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[color:var(--muted)] sm:text-right sm:text-[11px] sm:tracking-[0.32em]">
+          <div>{section}</div>
+          {classification.tweets_classified > 0 && (
+            <div className="mt-1 text-[color:var(--ink-soft)]">
+              {classification.tweets_classified}/{classification.tweets_total} tweets matched
+            </div>
+          )}
+        </div>
+      </div>
+
+      {segs.length > 0 && (
+        <div className="mt-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.3em] text-[color:var(--muted)] sm:text-[10px]">
+            Topic mix
+          </div>
+          <div className="mt-2 flex h-3 w-full overflow-hidden border border-[color:var(--ink)]">
+            {segs.map((b) => (
+              <div
+                key={b.id}
+                title={`${b.label}: ${(b.share * 100).toFixed(0)}%`}
+                style={{
+                  width: `${b.share * 100}%`,
+                  background: classColor(b.id),
+                }}
+              />
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-[color:var(--ink-soft)] sm:text-[11px]">
+            {segs.slice(0, 4).map((b) => (
+              <div key={b.id} className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: classColor(b.id) }}
+                />
+                <span className="font-bold uppercase tracking-[0.08em]">{b.label}</span>
+                <span className="tabular-nums text-[color:var(--muted)]">
+                  {(b.share * 100).toFixed(0)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Crypto-class palette. Hand-picked so the breakdown bar is legible on
+ * the paper background and survives the html-to-image capture cleanly.
+ */
+function classColor(id: string): string {
+  switch (id) {
+    case "defi": return "#3a6f4a";
+    case "perps": return "#9c433e";
+    case "nft": return "#7c5fc7";
+    case "trading": return "#c98a2e";
+    case "shitposting": return "#c84e8a";
+    case "prediction": return "#3267a6";
+    default: return "#7f8082";
+  }
+}
+
+/**
+ * Lazy-loaded "classmates" section under the report card. Fetches the
+ * roster for the user's primary class on mount and renders an
+ * American-style classroom layout (~28 students). Members are seeded
+ * from a hardcoded list of recognisable Crypto Twitter handles per
+ * class, so even an empty server already shows a populated room.
+ */
+function ClassmatesSection({ classification }: { classification: Classification }) {
+  const classId = classification.primary;
+  const [members, setMembers] = useState<ClassmateMember[] | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Lazy fetch: only hit the API the first time the user expands the section.
+  // The roster doesn't fit in the share PNG anyway (it's a separate UI block),
+  // so there's no need to load it eagerly.
+  const onToggle = useCallback(async () => {
+    if (!loaded) {
+      setLoaded(true);
+      const data = await fetchClassmates(classId);
+      setMembers(data?.members ?? []);
+    }
+    setExpanded((v) => !v);
+  }, [classId, loaded]);
+
+  return (
+    <div className="paper-card anim-card mt-6 p-4 sm:mt-8 sm:p-6 md:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.32em] text-[color:var(--muted)] sm:tracking-[0.4em]">
+            Your classroom
+          </div>
+          <h3 className="mt-1 font-serif text-xl font-bold text-[color:var(--ink)] sm:text-2xl">
+            {classification.emoji} {classification.label}
+          </h3>
+          <p className="mt-1 font-serif text-[13px] italic text-[color:var(--ink-soft)] sm:text-sm">
+            {expanded
+              ? "Real American class size. Yes, you sit next to all of them."
+              : "Open the door — see who else got assigned to this class."}
+          </p>
+        </div>
+        <button
+          onClick={onToggle}
+          className="self-start border-2 border-[color:var(--ink)] bg-transparent px-4 py-2 font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--ink)] transition hover:bg-[color:var(--ink)] hover:text-[color:var(--paper)] sm:self-end sm:text-[12px] sm:tracking-[0.26em]"
+          aria-expanded={expanded}
+        >
+          {expanded ? "Close classroom" : "Meet your classmates"}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="mt-5 sm:mt-6">
+          {members === null ? (
+            <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-[color:var(--muted)] shimmer">
+              Calling the roll…
+            </div>
+          ) : members.length === 0 ? (
+            <p className="font-serif text-sm text-[color:var(--ink-soft)]">
+              The classroom hasn't been populated yet — check back later.
+            </p>
+          ) : (
+            <ul
+              className="grid gap-3 sm:gap-4"
+              style={{
+                gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))",
+              }}
+            >
+              {members.map((m, i) => (
+                <ClassmateTile key={m.username + i} member={m} index={i} />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClassmateTile({ member, index }: { member: ClassmateMember; index: number }) {
+  const [imgOk, setImgOk] = useState(true);
+  const initials = (member.displayName || member.username)
+    .replace(/^@/, "")
+    .split(/\s+|_+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("") || "?";
+  return (
+    <li
+      className="anim-row flex flex-col items-center gap-1.5 text-center"
+      style={{ animationDelay: `${index * 35}ms` }}
+    >
+      <a
+        href={`https://x.com/${member.username}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group block"
+        aria-label={`Open @${member.username} on X`}
+      >
+        <div
+          className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-[color:var(--ink)] bg-[color:var(--paper-deep)] font-serif font-bold text-[color:var(--ink)] transition group-hover:border-[color:var(--accent)] sm:h-20 sm:w-20"
+          style={{ fontSize: "1.05rem" }}
+        >
+          {imgOk ? (
+            <img
+              src={avatarProxyUrl(member.username)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover"
+              onError={() => setImgOk(false)}
+            />
+          ) : (
+            <span aria-hidden>{initials}</span>
+          )}
+        </div>
+      </a>
+      <div className="w-full truncate font-mono text-[10px] text-[color:var(--ink-soft)] sm:text-[11px]">
+        @{member.username}
+      </div>
+    </li>
+  );
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────
