@@ -84,7 +84,7 @@ function Footer() {
   return (
     <div className="mt-10 flex flex-col items-center gap-3 px-2 sm:mt-12">
       <p className="text-center font-mono text-[9px] uppercase tracking-[0.32em] text-[color:var(--muted)] sm:text-[10px] sm:tracking-[0.4em]">
-        Window: 30 days&nbsp;·&nbsp;Data via twitterapi.io
+        Window: last 30 tweets&nbsp;·&nbsp;Data via twitterapi.io
       </p>
       <a
         href="https://x.com/0xakipka"
@@ -123,8 +123,8 @@ function InputScreen({ onSubmit }: { onSubmit: (u: string) => void }) {
           Student name
         </h2>
         <p className="mt-2 text-sm text-[color:var(--ink-soft)]">
-          Enter a Twitter / X username. The teacher reviews the last{" "}
-          <strong>30 days</strong> and assigns grades.
+          Enter a Twitter / X username. The teacher reviews the{" "}
+          <strong>last 30 tweets</strong> and assigns grades.
         </p>
 
         <label className="mt-6 flex items-stretch gap-2 border-b-2 border-[color:var(--accent)]">
@@ -284,7 +284,7 @@ function ResultScreen({
               Report card
             </h3>
             <div className="font-mono text-[10px] uppercase tracking-widest text-[color:var(--muted)]">
-              30 days · {data.stats.tweets_analyzed} tweets
+              last {data.stats.tweets_analyzed} tweets · {data.stats.days_span.toFixed(data.stats.days_span < 10 ? 1 : 0)}d span
             </div>
           </div>
           <div className="mt-2 h-[3px] bg-[color:var(--ink)]" />
@@ -584,7 +584,7 @@ function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
         <div className="mt-3 grid grid-cols-3 gap-2 font-mono text-xs sm:gap-3">
           <Stat label="followers" value={fmt(profile.followers)} />
           <Stat label="total tweets" value={fmt(profile.statusesCount)} />
-          <Stat label="last 30d" value={String(stats.total)} />
+          <Stat label="last 30 tweets" value={String(stats.total)} />
         </div>
       </div>
     </div>

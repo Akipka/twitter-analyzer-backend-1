@@ -221,44 +221,47 @@ const ACTIVITY_COMMENTS: Record<Grade, string[]> = {
 // ── Subject scorers ────────────────────────────────────────────────────────
 
 function gradeTweetology(stats: Stats): SubjectGrade {
-  // Original posts (non-replies) in the window (default 30 days).
-  // Calibrated against real X distributions: median active user posts ~5–20/30d,
-  // power users 80–300/30d, content factories 500+/30d. Thresholds scale
-  // proportionally if the window is shorter/longer than 30 days.
-  // F: <3/30d (lurker), D: <20 (rare), C: <60 (casual), B: <150 (regular),
-  // A: <350 (creator), A+: 350+ (machine).
-  const w = Math.max(stats.window_days, 1) / 30;
-  const v = stats.posts;
-  const grade = bucket(v, [3 * w, 20 * w, 60 * w, 150 * w, 350 * w]);
+  // Rate-based grading. Posts per day across the observed span of the 30-tweet
+  // sample. Calibrated against real X distributions: median active user posts
+  // ~0.3–0.7 original posts/day; power users 3–8/day; content factories 12+/day.
+  // F: <0.1/d (lurker), D: <0.35 (rare), C: <1.2 (casual), B: <3 (regular),
+  // A: <7 (creator), A+: 7+ (machine).
+  const posts = stats.posts;
+  const span = Math.max(stats.days_span, 1);
+  // Fall back to derived rate if backend hasn't shipped posts_per_day yet.
+  const v = stats.posts_per_day ?? posts / span;
+  const grade = bucket(v, [0.1, 0.35, 1.2, 3.0, 7.0]);
   return {
     id: "tweetology",
     name: "Tweetology",
     emoji: "📝",
-    description: "Original posts produced over the period",
+    description: "Original posts per day across the last 30 tweets",
     grade,
     numeric: gradeNumeric(grade),
-    comment: pick(TWEETOLOGY_COMMENTS[grade], v + 1),
-    metric: { label: "posts", value: String(v) },
+    comment: pick(TWEETOLOGY_COMMENTS[grade], posts + 1),
+    metric: { label: "posts / day", value: v.toFixed(2) },
   };
 }
 
 function gradeReplyology(stats: Stats): SubjectGrade {
-  // Replies in the window. Most users barely reply; conversationalists hit
-  // 30–150/30d; reply-guys clear 400+/30d.
-  // F: <2/30d (silent), D: <15 (rare), C: <50 (occasional), B: <150 (chatty),
-  // A: <400 (reply-guy), A+: 400+ (lives in replies).
-  const w = Math.max(stats.window_days, 1) / 30;
-  const v = stats.replies;
-  const grade = bucket(v, [2 * w, 15 * w, 50 * w, 150 * w, 400 * w]);
+  // Rate-based grading. Replies per day across the observed span.
+  // Most users barely reply (<0.1/d); conversationalists hit 1–5/d;
+  // reply-guys clear 10+/d.
+  // F: <0.05/d (silent), D: <0.3 (rare), C: <1.0 (occasional), B: <3 (chatty),
+  // A: <8 (reply-guy), A+: 8+ (lives in replies).
+  const replies = stats.replies;
+  const span = Math.max(stats.days_span, 1);
+  const v = stats.replies_per_day ?? replies / span;
+  const grade = bucket(v, [0.05, 0.3, 1.0, 3.0, 8.0]);
   return {
     id: "replyology",
     name: "Reply-ology",
     emoji: "💬",
-    description: "Reply activity",
+    description: "Replies per day across the last 30 tweets",
     grade,
     numeric: gradeNumeric(grade),
-    comment: pick(REPLYOLOGY_COMMENTS[grade], v + 7),
-    metric: { label: "replies", value: String(v) },
+    comment: pick(REPLYOLOGY_COMMENTS[grade], replies + 7),
+    metric: { label: "replies / day", value: v.toFixed(2) },
   };
 }
 

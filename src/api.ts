@@ -20,6 +20,8 @@ export interface Profile {
 }
 
 export interface Stats {
+  // Observed span of the 30-tweet sample (days, rounded). Not a configured
+  // window — kept named this way for backward compatibility with older UI.
   window_days: number;
   in_window: boolean;
   tweets_analyzed: number;
@@ -36,6 +38,10 @@ export interface Stats {
   avg_words: number;
   unique_word_ratio: number;
   activity_per_day: number;
+  // Per-day rates derived from days_span. Optional so older cached responses
+  // still render — grading falls back to activity_per_day breakdowns.
+  posts_per_day?: number;
+  replies_per_day?: number;
   days_span: number;
   earliest: string | null;
   latest: string | null;

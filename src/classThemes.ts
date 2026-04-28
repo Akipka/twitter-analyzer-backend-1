@@ -8,9 +8,9 @@
 //
 // Only the cosmetic fields change: subject `name`, `emoji`, and one-line
 // `description`. The metric, value, comment, and grade are all preserved.
-// That keeps the system honest — a user with 60 posts/30d gets a B for
-// that activity level whether they're on the DeFi floor or in the
-// Shitposting room, but the B is labelled "Yield Farming" vs "Cope Output".
+// That keeps the system honest — a user who posts ~2 times a day gets a B
+// whether they're on the DeFi floor or in the Shitposting room, but the B
+// is labelled "Yield Farming" vs "Cope Output".
 
 import type { SubjectGrade } from "./grading";
 
