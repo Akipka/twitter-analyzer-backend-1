@@ -44,7 +44,7 @@ function Header({ subdued = false }: { subdued?: boolean }) {
   // Stable journal number across renders so the header doesn't flicker.
   const journal = useMemo(() => Math.floor(Math.random() * 900) + 100, []);
   return (
-    <div className={subdued ? "text-center opacity-60" : "text-center"}>
+    <div className={(subdued ? "text-center opacity-60" : "text-center") + " anim-header"}>
       <div className="font-mono text-[9px] uppercase tracking-[0.45em] text-[color:var(--muted)] sm:text-[10px] sm:tracking-[0.5em]">
         Ministry of Content · Journal N°{journal}
       </div>
@@ -65,9 +65,20 @@ function Header({ subdued = false }: { subdued?: boolean }) {
 
 function Footer() {
   return (
-    <p className="mt-10 px-2 text-center font-mono text-[9px] uppercase tracking-[0.32em] text-[color:var(--muted)] sm:mt-12 sm:text-[10px] sm:tracking-[0.4em]">
-      Window: 30 days&nbsp;·&nbsp;Data via twitterapi.io
-    </p>
+    <div className="mt-10 flex flex-col items-center gap-3 px-2 sm:mt-12">
+      <p className="text-center font-mono text-[9px] uppercase tracking-[0.32em] text-[color:var(--muted)] sm:text-[10px] sm:tracking-[0.4em]">
+        Window: 30 days&nbsp;·&nbsp;Data via twitterapi.io
+      </p>
+      <a
+        href="https://x.com/0xakipka"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="credit-link inline-flex items-center gap-1.5 font-mono text-[11px] tracking-[0.06em] text-[color:var(--muted)] hover:text-[color:var(--ink)] sm:text-[12px]"
+      >
+        <span>Made by</span>
+        <span className="font-bold text-[color:var(--ink-soft)]">@0xakipka</span>
+      </a>
+    </div>
   );
 }
 
@@ -86,7 +97,7 @@ function InputScreen({ onSubmit }: { onSubmit: (u: string) => void }) {
 
       <form
         onSubmit={handleSubmit}
-        className="paper-card mt-8 w-full max-w-lg p-6 sm:mt-12 sm:p-10"
+        className="paper-card anim-card mt-8 w-full max-w-lg p-6 sm:mt-12 sm:p-10"
       >
         <div className="text-[10px] uppercase tracking-[0.28em] text-[color:var(--muted)] sm:text-[11px] sm:tracking-[0.32em]">
           Sign-in to the journal
@@ -119,7 +130,10 @@ function InputScreen({ onSubmit }: { onSubmit: (u: string) => void }) {
         <button
           type="submit"
           disabled={!username.trim()}
-          className="mt-6 w-full border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-3 py-3 font-serif text-base font-bold uppercase tracking-[0.24em] text-[#faf6ee] transition-all hover:bg-[color:var(--accent-deep)] disabled:cursor-not-allowed disabled:border-[color:var(--rule)] disabled:bg-transparent disabled:text-[color:var(--muted)] sm:mt-8 sm:text-lg sm:tracking-[0.3em]"
+          className={
+            "mt-6 w-full border-2 border-[color:var(--accent)] bg-[color:var(--accent)] px-3 py-3 font-serif text-base font-bold uppercase tracking-[0.24em] text-[#faf6ee] transition-all hover:bg-[color:var(--accent-deep)] disabled:cursor-not-allowed disabled:border-[color:var(--rule)] disabled:bg-transparent disabled:text-[color:var(--muted)] sm:mt-8 sm:text-lg sm:tracking-[0.3em]" +
+            (username.trim() ? " anim-cta" : "")
+          }
         >
           Enroll student
         </button>
@@ -237,7 +251,7 @@ function ResultScreen({
         </div>
       )}
 
-      <div ref={cardRef} className="paper-card mt-6 p-4 sm:mt-8 sm:p-8 md:p-10">
+      <div ref={cardRef} className="paper-card anim-card mt-6 p-4 sm:mt-8 sm:p-8 md:p-10">
         <ProfileHeader profile={data.profile} stats={data.stats} />
 
         <div className="mt-6 sm:mt-8">
@@ -252,7 +266,7 @@ function ResultScreen({
           <div className="mt-2 h-[3px] bg-[color:var(--ink)]" />
           <ul>
             {card.subjects.map((s, i) => (
-              <SubjectRow key={s.id} subject={s} showTopDivider={i > 0} />
+              <SubjectRow key={s.id} subject={s} showTopDivider={i > 0} index={i} />
             ))}
           </ul>
           <div className="h-[3px] bg-[color:var(--ink)]" />
@@ -610,17 +624,23 @@ function Stat({ label, value }: { label: string; value: string }) {
 function SubjectRow({
   subject,
   showTopDivider,
+  index,
 }: {
   subject: SubjectGrade;
   showTopDivider: boolean;
+  index: number;
 }) {
   const isFail = subject.grade === "F";
+  // Stagger row entrance, then pop the grade letter once the row settles.
+  const rowDelay = 250 + index * 90;
+  const gradeDelay = rowDelay + 200;
   return (
     <li
       className={
-        "flex items-stretch gap-3 py-4 sm:gap-5 sm:py-5" +
+        "subject-row anim-row flex items-stretch gap-3 px-1 py-4 sm:gap-5 sm:py-5" +
         (showTopDivider ? " subject-row-top" : "")
       }
+      style={{ animationDelay: `${rowDelay}ms` }}
     >
       <div className="hidden w-8 shrink-0 self-center text-center font-mono text-base text-[color:var(--muted)] sm:block">
         {subject.emoji}
@@ -647,12 +667,13 @@ function SubjectRow({
       </div>
       <div className="flex shrink-0 items-center justify-end">
         <span
-          className="grade-letter select-none"
+          className="grade-letter anim-grade select-none"
           style={{
             fontSize: "clamp(2.75rem, 9vw, 4.5rem)",
             minWidth: "2.6ch",
             display: "inline-block",
             textAlign: "right",
+            animationDelay: `${gradeDelay}ms`,
           }}
         >
           {subject.grade}
@@ -663,17 +684,19 @@ function SubjectRow({
 }
 
 function Verdict({ card }: { card: ReportCard }) {
-  const gpa10 = (card.gpa * 2).toFixed(1); // friendly 0..10 scale
+  const target = card.gpa * 2; // friendly 0..10 scale
+  const animated = useCountUp(target, 1100);
+  const gpa10 = animated.toFixed(1);
   return (
     <div className="mt-8 border-t-2 border-double border-[color:var(--accent)] pt-5 sm:mt-10 sm:pt-6">
       <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
+        <div className="anim-gpa min-w-0">
           <div className="font-mono text-[10px] uppercase tracking-[0.32em] text-[color:var(--muted)] sm:tracking-[0.4em]">
             GPA
           </div>
           <div className="flex items-baseline gap-2">
             <div
-              className="font-serif font-black leading-none text-[color:var(--ink)]"
+              className="font-serif font-black leading-none tabular-nums text-[color:var(--ink)]"
               style={{ fontSize: "clamp(2.75rem, 11vw, 4rem)" }}
             >
               {gpa10}
@@ -686,7 +709,7 @@ function Verdict({ card }: { card: ReportCard }) {
         </div>
         <div className="self-end sm:self-auto">
           <div
-            className="stamp"
+            className="stamp anim-stamp"
             style={{ fontSize: "clamp(1.25rem, 4.5vw, 1.875rem)" }}
           >
             <span className="stamp__inner">{card.verdict.title}</span>
@@ -695,6 +718,31 @@ function Verdict({ card }: { card: ReportCard }) {
       </div>
     </div>
   );
+}
+
+// Animate a number from 0 to `target` once on mount (and on target change),
+// using requestAnimationFrame and cubic ease-out. Cheap, no deps.
+// The animation is a one-shot — by the time the user opens the share modal
+// the number is at its target, so the captured PNG is correct.
+function useCountUp(target: number, durationMs = 1000): number {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (typeof window === "undefined" || !target) {
+      setV(target || 0);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (t: number) => {
+      const p = Math.min((t - start) / durationMs, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setV(target * eased);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+  return v;
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────
