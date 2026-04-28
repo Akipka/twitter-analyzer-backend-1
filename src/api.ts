@@ -41,9 +41,34 @@ export interface Stats {
   latest: string | null;
 }
 
+export interface ClassBreakdownEntry {
+  id: string;
+  label: string;
+  emoji: string;
+  share: number; // 0..1, % of identifiable tweets that hit this class
+  hits: number;
+}
+
+export interface Classification {
+  // Stable id, e.g. "defi", "perps", "nft", "trading", "shitposting",
+  // "prediction", or "general" when no class crossed the recognition threshold.
+  primary: string;
+  label: string;
+  emoji: string;
+  blurb: string;
+  confidence: number; // share of the primary class within total hits
+  breakdown: ClassBreakdownEntry[];
+  tweets_classified: number;
+  tweets_total: number;
+}
+
 export interface AnalyzeResponse {
   profile: Profile;
   stats: Stats;
+  // Crypto-class assignment + percentage breakdown across all classes.
+  // Optional so the frontend doesn't crash if the backend hasn't been
+  // updated yet (older responses just won't show the class card).
+  classification?: Classification;
   elapsed: number;
   // True when the backend served deterministic synthetic data (e.g. when
   // upstream credits are exhausted but DEMO_FALLBACK is on).
@@ -52,6 +77,21 @@ export interface AnalyzeResponse {
   // twitterapi.io credits on popular profiles). Frontend treats it identically.
   cached?: boolean;
   cached_age_seconds?: number;
+}
+
+export interface ClassmateMember {
+  username: string;
+  displayName: string;
+  seeded: boolean;
+  addedAt: number;
+}
+
+export interface ClassmatesResponse {
+  class: string;
+  label: string;
+  emoji: string;
+  members: ClassmateMember[];
+  size_cap: number;
 }
 
 export interface AnalyzeError {
@@ -80,6 +120,20 @@ export function avatarProxyUrl(username: string): string {
   const clean = username.trim().replace(/^@/, "");
   if (!clean) return "";
   return `${API_BASE}/api/avatar/${encodeURIComponent(clean)}`;
+}
+
+export async function fetchClassmates(
+  classId: string,
+): Promise<ClassmatesResponse | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/classmates/${encodeURIComponent(classId)}`,
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as ClassmatesResponse;
+  } catch {
+    return null;
+  }
 }
 
 export async function analyze(
