@@ -129,6 +129,15 @@ export function avatarProxyUrl(username: string): string {
   return `${API_BASE}/api/avatar/${encodeURIComponent(clean)}`;
 }
 
+// twimg serves multiple sizes for every profile picture, encoded as a suffix
+// just before the extension. The `_normal` variant is 48x48 — visibly fuzzy
+// when rendered at 64+ CSS pixels on hi-DPI screens. Upscale to `_400x400`
+// (the largest pre-rendered size) so the image stays sharp at every density.
+export function highResAvatar(url: string | undefined): string {
+  if (!url) return "";
+  return url.replace(/_normal(\.[a-zA-Z]+)$/, "_400x400$1");
+}
+
 export async function fetchClassmates(
   classId: string,
 ): Promise<ClassmatesResponse | null> {

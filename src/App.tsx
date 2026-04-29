@@ -4,6 +4,7 @@ import {
   analyze,
   avatarProxyUrl,
   fetchClassmates,
+  highResAvatar,
   type AnalyzeResponse,
   type Classification,
   type ClassmateMember,
@@ -258,6 +259,19 @@ function ResultScreen({
   const cardRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
 
+  // Auto-scroll the report card into view as soon as the result lands so the
+  // user lands directly on their grades instead of staring at the page header.
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node) return;
+    // requestAnimationFrame so the layout has settled (animations, fonts);
+    // a tiny offset above the card keeps the breadcrumb visible.
+    const id = window.requestAnimationFrame(() => {
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
   return (
     <div className="mx-auto w-full max-w-3xl px-3 py-8 sm:px-6 sm:py-12">
       <Header subdued />
@@ -364,10 +378,16 @@ function ShareModal({
     const node = cardRef.current;
     if (!node) return;
     setStatus("working");
+    // NOTE: cacheBust appends ?<rand> to every image URL it inlines, but
+    // pbs.twimg.com returns 404 for any URL with a query string. Leaving
+    // it on hangs the share-modal preview indefinitely (the avatar is
+    // never inlined and the promise never resolves). The avatar is
+    // already in the browser cache from the live page render, so cache
+    // busting buys us nothing here anyway.
     toBlob(node, {
       backgroundColor: "#fcfaf3",
       pixelRatio: 2,
-      cacheBust: true,
+      cacheBust: false,
     })
       .then((blob) => {
         if (cancelled || !blob) return;
@@ -547,10 +567,13 @@ function ShareModal({
 
 function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
   // Prefer the real twimg URL the backend already ships in the analyse
-  // response. If it's missing, fall back to the unavatar.io-backed proxy.
-  // The Avatar component handles its own onError fallback to a local
-  // initials PNG (also used as the html2canvas-safe share-image source).
-  const networkAvatar = profile.avatarUrl || avatarProxyUrl(profile.userName);
+  // response (upgraded to the 400x400 variant so it stays sharp on
+  // hi-DPI displays and inside the share PNG). Falls back to the
+  // unavatar.io-backed proxy if the backend hasn't populated avatarUrl;
+  // the Avatar component handles its own onError fallback to a local
+  // initials PNG (also used as the share-image-safe source).
+  const networkAvatar =
+    highResAvatar(profile.avatarUrl) || avatarProxyUrl(profile.userName);
   return (
     <div className="flex flex-col items-start gap-4 sm:flex-row sm:gap-5">
       <Avatar
@@ -1035,7 +1058,7 @@ function ClassmateTile({ member, index }: { member: ClassmateMember; index: numb
               the unavatar proxy only if the backend hasn't populated
               avatarUrl yet (e.g. seed validation still running). */}
           <img
-            src={member.avatarUrl || avatarProxyUrl(member.username)}
+            src={highResAvatar(member.avatarUrl) || avatarProxyUrl(member.username)}
             alt=""
             loading="lazy"
             decoding="async"
