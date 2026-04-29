@@ -546,12 +546,15 @@ function ShareModal({
 }
 
 function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
-  // Always pull the avatar through our backend proxy. The proxy serves the
-  // real X profile image with proper CORS so html2canvas can capture it.
+  // Prefer the real twimg URL the backend already ships in the analyse
+  // response. If it's missing, fall back to the unavatar.io-backed proxy.
+  // The Avatar component handles its own onError fallback to a local
+  // initials PNG (also used as the html2canvas-safe share-image source).
+  const networkAvatar = profile.avatarUrl || avatarProxyUrl(profile.userName);
   return (
     <div className="flex flex-col items-start gap-4 sm:flex-row sm:gap-5">
       <Avatar
-        src={avatarProxyUrl(profile.userName)}
+        src={networkAvatar}
         alt={profile.displayName}
         username={profile.userName}
       />
@@ -914,6 +917,20 @@ function ClassmatesSection({ classification }: { classification: Classification 
       setLoaded(true);
       const data = await fetchClassmates(classId);
       setMembers(data?.members ?? []);
+      // Seed-validation runs in a background thread on the backend; the
+      // first roster response often has empty avatarUrl on seeded entries.
+      // Re-fetch once after a short delay so the avatars actually appear.
+      const seedsMissingAvatar = (data?.members ?? []).some(
+        (m) => m.seeded && !m.avatarUrl,
+      );
+      if (seedsMissingAvatar) {
+        setTimeout(async () => {
+          const refreshed = await fetchClassmates(classId);
+          if (refreshed?.members?.length) {
+            setMembers(refreshed.members);
+          }
+        }, 8000);
+      }
     }
     setExpanded((v) => !v);
   }, [classId, loaded]);
@@ -1013,11 +1030,16 @@ function ClassmateTile({ member, index }: { member: ClassmateMember; index: numb
               {initials}
             </span>
           )}
+          {/* Prefer the direct twimg avatar URL the backend ships in
+              the roster (no third-party proxy in the way). Fall back to
+              the unavatar proxy only if the backend hasn't populated
+              avatarUrl yet (e.g. seed validation still running). */}
           <img
-            src={avatarProxyUrl(member.username)}
+            src={member.avatarUrl || avatarProxyUrl(member.username)}
             alt=""
             loading="lazy"
             decoding="async"
+            referrerPolicy="no-referrer"
             className={
               "absolute inset-0 h-full w-full object-cover transition-opacity duration-200 " +
               (imgState === "loaded" ? "opacity-100" : "opacity-0")

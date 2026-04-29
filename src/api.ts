@@ -88,6 +88,7 @@ export interface AnalyzeResponse {
 export interface ClassmateMember {
   username: string;
   displayName: string;
+  avatarUrl?: string;
   seeded: boolean;
   addedAt: number;
 }
