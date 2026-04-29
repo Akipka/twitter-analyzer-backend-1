@@ -584,7 +584,7 @@ function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
         <div className="mt-3 grid grid-cols-3 gap-2 font-mono text-xs sm:gap-3">
           <Stat label="followers" value={fmt(profile.followers)} />
           <Stat label="total tweets" value={fmt(profile.statusesCount)} />
-          <Stat label="tweets" value={String(stats.total)} />
+          <Stat label="tweets analyzed" value={String(stats.total)} />
         </div>
       </div>
     </div>
@@ -972,11 +972,26 @@ function ClassmatesSection({ classification }: { classification: Classification 
 }
 
 function ClassmateTile({ member, index }: { member: ClassmateMember; index: number }) {
-  // If the avatar fails to load (suspended / deleted / privated account),
-  // we hide the tile entirely. The user explicitly asked for ghost-faced
-  // accounts to disappear from the roster rather than render as initials.
-  const [hidden, setHidden] = useState(false);
-  if (hidden) return null;
+  // Three states: 'loading' (no <img> render yet — show neutral skeleton),
+  // 'loaded' (real avatar visible), 'failed' (transient or permanent fetch
+  // error — fall back to initials so the tile remains visible).
+  //
+  // We previously hid the tile entirely on error. That backfired badly: when
+  // 28 avatar-proxy requests fire at once against a single Render worker,
+  // many fail transiently and the entire roster appears to drain to 1–2
+  // members. Genuinely-dead seeded accounts are filtered server-side, so a
+  // failed avatar load here almost always means a transient proxy hiccup,
+  // not a dead account.
+  const [imgState, setImgState] = useState<"loading" | "loaded" | "failed">("loading");
+  const initials = (member.displayName || member.username)
+    .replace(/[^A-Za-zА-Яа-я0-9 ]/g, "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || (member.username[0] || "?").toUpperCase();
   return (
     <li
       className="anim-row flex flex-col items-center gap-1.5 text-center"
@@ -990,16 +1005,25 @@ function ClassmateTile({ member, index }: { member: ClassmateMember; index: numb
         aria-label={`Open @${member.username} on X`}
       >
         <div
-          className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-[color:var(--ink)] bg-[color:var(--paper-deep)] font-serif font-bold text-[color:var(--ink)] transition group-hover:border-[color:var(--accent)] sm:h-20 sm:w-20"
-          style={{ fontSize: "1.05rem" }}
+          className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-[color:var(--ink)] bg-[color:var(--paper-deep)] font-serif font-bold text-[color:var(--ink)] transition group-hover:border-[color:var(--accent)] sm:h-20 sm:w-20"
+          style={{ fontSize: "0.95rem" }}
         >
+          {imgState !== "loaded" && (
+            <span aria-hidden className="select-none tracking-wide">
+              {initials}
+            </span>
+          )}
           <img
             src={avatarProxyUrl(member.username)}
             alt=""
             loading="lazy"
             decoding="async"
-            className="h-full w-full object-cover"
-            onError={() => setHidden(true)}
+            className={
+              "absolute inset-0 h-full w-full object-cover transition-opacity duration-200 " +
+              (imgState === "loaded" ? "opacity-100" : "opacity-0")
+            }
+            onLoad={() => setImgState("loaded")}
+            onError={() => setImgState("failed")}
           />
         </div>
       </a>
