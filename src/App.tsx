@@ -584,7 +584,7 @@ function ProfileHeader({ profile, stats }: { profile: Profile; stats: Stats }) {
         <div className="mt-3 grid grid-cols-3 gap-2 font-mono text-xs sm:gap-3">
           <Stat label="followers" value={fmt(profile.followers)} />
           <Stat label="total tweets" value={fmt(profile.statusesCount)} />
-          <Stat label="last 30 tweets" value={String(stats.total)} />
+          <Stat label="tweets" value={String(stats.total)} />
         </div>
       </div>
     </div>
@@ -877,13 +877,19 @@ function ClassAssignment({
  */
 function classColor(id: string): string {
   switch (id) {
-    case "defi": return "#3a6f4a";
-    case "perps": return "#9c433e";
-    case "nft": return "#7c5fc7";
-    case "trading": return "#c98a2e";
-    case "shitposting": return "#c84e8a";
-    case "prediction": return "#3267a6";
-    default: return "#7f8082";
+    case "defi":       return "#3a6f4a"; // muted forest
+    case "perps":      return "#9c433e"; // brick
+    case "memecoins":  return "#d04f88"; // hot pink
+    case "nft":        return "#7c5fc7"; // dusty purple
+    case "prediction": return "#3267a6"; // ink blue
+    case "rwa":        return "#7e6a3e"; // sand / parchment
+    case "ai":         return "#1f8a7d"; // teal
+    case "airdrops":   return "#c98a2e"; // mustard
+    case "socialfi":   return "#b04a8a"; // magenta
+    case "restaking":  return "#5d6f9d"; // slate blue
+    case "l2":         return "#8a4f1f"; // burnt orange
+    case "macro":      return "#3f5b3a"; // olive
+    default:           return "#7f8082"; // grey, for "general"
   }
 }
 
@@ -966,14 +972,11 @@ function ClassmatesSection({ classification }: { classification: Classification 
 }
 
 function ClassmateTile({ member, index }: { member: ClassmateMember; index: number }) {
-  const [imgOk, setImgOk] = useState(true);
-  const initials = (member.displayName || member.username)
-    .replace(/^@/, "")
-    .split(/\s+|_+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("") || "?";
+  // If the avatar fails to load (suspended / deleted / privated account),
+  // we hide the tile entirely. The user explicitly asked for ghost-faced
+  // accounts to disappear from the roster rather than render as initials.
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
   return (
     <li
       className="anim-row flex flex-col items-center gap-1.5 text-center"
@@ -990,18 +993,14 @@ function ClassmateTile({ member, index }: { member: ClassmateMember; index: numb
           className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-[color:var(--ink)] bg-[color:var(--paper-deep)] font-serif font-bold text-[color:var(--ink)] transition group-hover:border-[color:var(--accent)] sm:h-20 sm:w-20"
           style={{ fontSize: "1.05rem" }}
         >
-          {imgOk ? (
-            <img
-              src={avatarProxyUrl(member.username)}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover"
-              onError={() => setImgOk(false)}
-            />
-          ) : (
-            <span aria-hidden>{initials}</span>
-          )}
+          <img
+            src={avatarProxyUrl(member.username)}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+            onError={() => setHidden(true)}
+          />
         </div>
       </a>
       <div className="w-full truncate font-mono text-[10px] text-[color:var(--ink-soft)] sm:text-[11px]">
